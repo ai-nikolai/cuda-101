@@ -17,4 +17,4 @@
 module purge
 module load CUDA
 
-./prac1b
+./prac1b2

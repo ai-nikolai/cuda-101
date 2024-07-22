@@ -17,8 +17,16 @@
 __global__ void my_first_kernel(float *x)
 {
   int tid = threadIdx.x + blockDim.x*blockIdx.x;
+  float y = 1/0;
+  int z = -1/0;
 
-  x[tid] = (float) threadIdx.x;
+  if (threadIdx.x == 1){
+    printf("y is %f, z is %d",y,z);
+  }
+
+  x[tid] = (float) y;
+  // x[tid+10000000] = (float) y;
+
 }
 
 
