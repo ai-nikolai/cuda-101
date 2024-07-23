@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:1
 
 # set name of job
-#SBATCH --job-name=prac2
+#SBATCH --job-name=prac22
 
 # use our reservation
 #SBATCH --reservation=cuda202407
@@ -17,4 +17,4 @@
 module purge
 module load CUDA
 
-./prac2
+./prac22
