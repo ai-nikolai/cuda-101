@@ -14,7 +14,7 @@
 ////////////////////////////////////////////////////////////////////////
 
 #define BLOCK_X 16
-#define BLOCK_Y 4
+#define BLOCK_Y 8
 #define BLOCK_Z 4
 
 ////////////////////////////////////////////////////////////////////////
@@ -58,6 +58,37 @@ __global__ void GPU_laplace3d(int NX, int NY, int NZ,
   }
 }
 
+__global__ void dirichlet_initialisation(int NX, int NY, int NZ, float* d_u1)
+{
+  int       i, j, k, IOFF, JOFF, KOFF;
+  long long indg;
+  // float     u2, sixth=1.0f/6.0f;
+
+  //
+  // define global indices and array offsets
+  //
+
+  i    = threadIdx.x + blockIdx.x*BLOCK_X;
+  j    = threadIdx.y + blockIdx.y*BLOCK_Y;
+  k    = threadIdx.z + blockIdx.z*BLOCK_Z;
+  indg = i + j*NX;
+
+  IOFF = 1;
+  JOFF = NX;
+  KOFF = NX*NY;
+
+  indg = i + j*JOFF + k*KOFF;
+
+  if (i>=0 && i<=NX-1 && j>=0 && j<=NY-1 && k>=0 && k<=NZ-1) {
+    if (i==0 || i==NX-1 || j==0 || j==NY-1 || k==0 || k==NZ-1) {
+      d_u1[indg]=1.0f;  // Dirichlet b.c.'s
+    }
+    else {
+      d_u1[indg]=0.0f;
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////
 // declare Gold routine
 ////////////////////////////////////////////////////////////////////////
@@ -70,8 +101,16 @@ void Gold_laplace3d(int NX, int NY, int NZ, float* h_u1, float* h_u2);
 
 int main(int argc, const char **argv){
 
-  long long NX=512, NY=512, NZ=512,
-            REPEAT=20, bx, by, bz, i, j, k, ind;
+  int bxp=(int) BLOCK_X, byp=(int) BLOCK_Y, bzp=(int) BLOCK_Z;
+  printf("3D IMPLEMENTATION: BlockX:%d, BlockY:%d, BlockZ:%d\n",bxp, byp, bzp);
+
+  // My custom params.
+  bool run_gold = false;
+  bool run_cuda_init = true;
+  int gridsize = 1024;
+
+  long long NX=gridsize, NY=gridsize, NZ=gridsize,
+            REPEAT=20, bx, by, bz, i, j, k, ind, bx2, by2;;
   float    *h_u1, *h_u2, *h_foo,
            *d_u1, *d_u2, *d_foo;
   
@@ -99,41 +138,68 @@ int main(int argc, const char **argv){
 
   // initialise u1
 
-  for (k=0; k<NZ; k++) {
-    for (j=0; j<NY; j++) {
-      for (i=0; i<NX; i++) {
-        ind = i + j*NX + k*NX*NY;
+  if (!run_cuda_init or run_gold){
+      for (k=0; k<NZ; k++) {
+      for (j=0; j<NY; j++) {
+        for (i=0; i<NX; i++) {
+          ind = i + j*NX + k*NX*NY;
 
-        if (i==0 || i==NX-1 || j==0 || j==NY-1|| k==0 || k==NZ-1)
-          h_u1[ind] = 1.0f;           // Dirichlet b.c.'s
-        else
-          h_u1[ind] = 0.0f;
+          if (i==0 || i==NX-1 || j==0 || j==NY-1|| k==0 || k==NZ-1)
+            h_u1[ind] = 1.0f;           // Dirichlet b.c.'s
+          else
+            h_u1[ind] = 0.0f;
+        }
       }
     }
   }
 
-  // copy u1 to device
+  // Alternatively GPU init or GPU mem copy
+  if (run_cuda_init){
 
-  cudaEventRecord(start);
-  checkCudaErrors( cudaMemcpy(d_u1, h_u1, bytes,
-                              cudaMemcpyHostToDevice) );
-  cudaEventRecord(stop);
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&milli, start, stop);
-  printf("Copy u1 to device: %.1f (ms) \n\n", milli);
+    // Set up the execution configuration
 
-  // Gold treatment
+    bx2 = 1 + (NX-1)/BLOCK_X;
+    by2 = 1 + (NY-1)/BLOCK_Y;
 
-  cudaEventRecord(start);
-  for (i=0; i<REPEAT; i++) {
-    Gold_laplace3d(NX, NY, NZ, h_u1, h_u2);
-    h_foo = h_u1; h_u1 = h_u2; h_u2 = h_foo;   // swap h_u1 and h_u2
+    dim3 dimGrid2(bx2,by2);
+    dim3 dimBlock2(BLOCK_X,BLOCK_Y);
+
+    cudaEventRecord(start);
+    dirichlet_initialisation<<<dimGrid2, dimBlock2>>>(NX, NY, NZ, d_u1);
+    getLastCudaError("GPU_laplace3d execution failed\n");
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milli, start, stop);
+    printf("Init on device (GPU) took: %.1f (ms) \n\n", milli);
+
+  }
+  else { // Running memory copy
+
+    // copy u1 to device
+
+    cudaEventRecord(start);
+    checkCudaErrors( cudaMemcpy(d_u1, h_u1, bytes,
+                                cudaMemcpyHostToDevice) );
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milli, start, stop);
+    printf("Copy u1 to device: %.1f (ms) \n\n", milli);
+
   }
 
-  cudaEventRecord(stop);
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&milli, start, stop);
-  printf("%dx Gold_laplace3d: %.1f (ms) \n\n", REPEAT, milli);
+  // Gold treatment
+  if (run_gold){
+    cudaEventRecord(start);
+    for (i=0; i<REPEAT; i++) {
+      Gold_laplace3d(NX, NY, NZ, h_u1, h_u2);
+      h_foo = h_u1; h_u1 = h_u2; h_u2 = h_foo;   // swap h_u1 and h_u2
+    }
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milli, start, stop);
+    printf("%dx Gold_laplace3d: %.1f (ms) \n\n", REPEAT, milli);
+  }
   
   // Set up the execution configuration
 
@@ -169,20 +235,22 @@ int main(int argc, const char **argv){
   cudaEventElapsedTime(&milli, start, stop);
   printf("Copy u2 to host: %.1f (ms) \n\n", milli);
 
-  // error check
+  // error check against CPU gold
+  if (run_gold){
+    float err = 0.0;
 
-  float err = 0.0;
-
-  for (k=0; k<NZ; k++) {
-    for (j=0; j<NY; j++) {
-      for (i=0; i<NX; i++) {
-        ind = i + j*NX + k*NX*NY;
-        err += (h_u1[ind]-h_u2[ind])*(h_u1[ind]-h_u2[ind]);
+    for (k=0; k<NZ; k++) {
+      for (j=0; j<NY; j++) {
+        for (i=0; i<NX; i++) {
+          ind = i + j*NX + k*NX*NY;
+          err += (h_u1[ind]-h_u2[ind])*(h_u1[ind]-h_u2[ind]);
+        }
       }
     }
-  }
+  
 
-  printf("rms error = %f \n",sqrt(err/ (float)(NX*NY*NZ)));
+    printf("rms error = %f \n",sqrt(err/ (float)(NX*NY*NZ)));
+  }
     
  // Release GPU and CPU memory
 

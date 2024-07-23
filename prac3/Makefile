@@ -6,6 +6,12 @@ NVCCFLAGS	:= -lineinfo -arch=sm_70 --ptxas-options=-v --use_fast_math
 
 all: 		laplace3d laplace3d_new
 
+run1:
+	sbatch laplace3d.sh
+
+run2:
+	sbatch laplace3d_new.sh
+
 laplace3d:	laplace3d.cu laplace3d_gold.cpp Makefile
 		nvcc laplace3d.cu laplace3d_gold.cpp -o laplace3d \
 		$(INC) $(NVCCFLAGS) $(LIB)
