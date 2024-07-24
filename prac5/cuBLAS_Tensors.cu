@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+
+#include <curand_kernel.h>
+
+
 // Function to check for errors.
 void checkError(cublasStatus_t status){
     if (status != CUBLAS_STATUS_SUCCESS){
@@ -13,6 +17,11 @@ void checkError(cublasStatus_t status){
 }
 
 int main(void){
+
+    //run_init_on_gpu -> look at this and prac2_device: 
+    // https://stackoverflow.com/questions/57902066/how-to-generate-unique-random-integers-with-curand
+    //
+    bool run_tf32 = false, run_cpu = false, run_init_on_gpu = false; //run_init_on_gpu not used at the moment.
 
     // Variable to hold the status returned by cuBLAS.
     cublasStatus_t status;
@@ -27,6 +36,10 @@ int main(void){
 
     // Size of row or col in matrix (we will work with a square matrix).
     int n = 1024;
+    // int n = 1024;
+    // int n = 1024;
+    // int n = 1024;
+
 
     // To get an accurate timing measurement we will run the same code
     // multiple times. Five times should be more than enough.
@@ -92,71 +105,74 @@ int main(void){
         cudaEventElapsedTime(&milliseconds, start, stop);
         printf("Time for SGEMM without Tensor Cores: %f ms\n", milliseconds);
     }
+    if (run_cpu){
+        // Copy the result back to the host.
+        cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost);
 
-    // Copy the result back to the host.
-    cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Check the result.
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
+        // Check the result.
         #pragma omp parallel for
-        for (int j = 0; j < n; j++) {
-            float expected = 0.0f;
-            #pragma omp parallel for reduction(+:expected)
-            for (int k = 0; k < n; k++) {
-                expected += h_A[k*n + j] * h_B[i*n + k];
-            }
-            // Check if the absolute difference of the cuBLAS output is within a small tolerance of the expected output.
-            if (fabs(h_C[i*n + j] - expected) > 1e-1) {
-               printf("Verification failed at index %d,%d! h_C[%d,%d] = %f, expected = %f\n", i, j, i, j, h_C[i*n + j], expected);
-               exit(-1);
+        for (int i = 0; i < n; i++) {
+            #pragma omp parallel for
+            for (int j = 0; j < n; j++) {
+                float expected = 0.0f;
+                #pragma omp parallel for reduction(+:expected)
+                for (int k = 0; k < n; k++) {
+                    expected += h_A[k*n + j] * h_B[i*n + k];
+                }
+                // Check if the absolute difference of the cuBLAS output is within a small tolerance of the expected output.
+                if (fabs(h_C[i*n + j] - expected) > 1e-1) {
+                printf("Verification failed at index %d,%d! h_C[%d,%d] = %f, expected = %f\n", i, j, i, j, h_C[i*n + j], expected);
+                exit(-1);
+                }
             }
         }
+        printf("Verification passed!\n\n");
     }
-    printf("Verification passed!\n\n");
 
-    /****************************************************************************************************************************
-                This next section is exactly the same as the last, however this time we pass cublasSetMathMode()
-                CUBLAS_TF32_TENSOR_OP_MATH. This is the easiest way to enable acceleration of single-precision
-                routines using TF32 tensor cores for those working on architectures Ampere and above.
+    if (run_tf32){
+        /****************************************************************************************************************************
+                    This next section is exactly the same as the last, however this time we pass cublasSetMathMode()
+                    CUBLAS_TF32_TENSOR_OP_MATH. This is the easiest way to enable acceleration of single-precision
+                    routines using TF32 tensor cores for those working on architectures Ampere and above.
 
-                                    cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
+                                        cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
 
-                                             NOTE: THIS WILL HAVE NO EFFECT ON VOLTA
-     ***************************************************************************************************************************/
+                                                NOTE: THIS WILL HAVE NO EFFECT ON VOLTA
+        ***************************************************************************************************************************/
 
-    status = cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
-    checkError(status);
-    for (int i = 0; i < num_reps; i++) {
-        cudaEventRecord(start);
+        status = cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
         checkError(status);
-        status = cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, d_A, n, d_B, n, &beta, d_C, n);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&milliseconds, start, stop);
-        printf("Timie for SGEMM with Tensor Cores and TF32 (Ampere and beyond): %f ms\n", milliseconds);
-    }
-
-    cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost);
-
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        #pragma omp parallel for
-        for (int j = 0; j < n; j++) {
-            float expected = 0.0f;
-            #pragma omp parallel for reduction(+:expected)
-            for (int k = 0; k < n; k++) {
-                expected += h_A[k*n + j] * h_B[i*n + k];
-            }
-            if (fabs(h_C[i*n + j] - expected) > 1e-1) {
-               printf("Verification failed at index %d,%d! h_C[%d,%d] = %f, expected = %f\n", i, j, i, j, h_C[i*n + j], expected);
-               exit(-1);
-            }
+        for (int i = 0; i < num_reps; i++) {
+            cudaEventRecord(start);
+            checkError(status);
+            status = cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, d_A, n, d_B, n, &beta, d_C, n);
+            cudaEventRecord(stop);
+            cudaEventSynchronize(stop);
+            cudaEventElapsedTime(&milliseconds, start, stop);
+            printf("Timie for SGEMM with Tensor Cores and TF32 (Ampere and beyond): %f ms\n", milliseconds);
         }
+        if (run_cpu){
+            cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost);
+            
+            #pragma omp parallel for
+            for (int i = 0; i < n; i++) {
+                #pragma omp parallel for
+                for (int j = 0; j < n; j++) {
+                    float expected = 0.0f;
+                    #pragma omp parallel for reduction(+:expected)
+                    for (int k = 0; k < n; k++) {
+                        expected += h_A[k*n + j] * h_B[i*n + k];
+                    }
+                    if (fabs(h_C[i*n + j] - expected) > 1e-1) {
+                    printf("Verification failed at index %d,%d! h_C[%d,%d] = %f, expected = %f\n", i, j, i, j, h_C[i*n + j], expected);
+                    exit(-1);
+                    }
+                }
+            }
+            printf("Verification passed!\n\n");
+        }
+
     }
-    printf("Verification passed!\n\n");
-
-
     /****************************************************************************************************************************
                 This next section uses both tensor cores and mixed precision for acceleration on the volta architecture.
                 To do this we tell cublasSetMathMode() to use the default math mode by passing CUBLAS_DEFAULT_MATH
@@ -204,30 +220,30 @@ int main(void){
         cudaEventElapsedTime(&milliseconds, start, stop);
         printf("Time for SGEMM with Tensor Cores and mixed precision (Volta): %f ms\n", milliseconds);
     }
+    if (run_cpu){
+        // Copy the result back to the host
+        cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost);
 
-    // Copy the result back to the host
-    cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Check the result
-    #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
+        // Check the result
         #pragma omp parallel for
-        for (int j = 0; j < n; j++) {
-            float expected = 0.0f;
-            #pragma omp parallel for reduction(+:expected)
-            for (int k = 0; k < n; k++) {
-                expected += (float)h_hA[k*n + j] * (float)h_hB[i*n + k];
-            }
-            //printf("\n%f\t%f", expected, h_C[i*n + j]);
-            // Check if the absolute difference is within a small tolerance
-            if (fabs(h_C[i*n + j] - expected) > 1e-1) {
-               printf("Verification failed at index %d,%d! h_C[%d,%d] = %f, expected = %f\n", i, j, i, j, h_C[i*n + j], expected);
-               exit(-1);
+        for (int i = 0; i < n; i++) {
+            #pragma omp parallel for
+            for (int j = 0; j < n; j++) {
+                float expected = 0.0f;
+                #pragma omp parallel for reduction(+:expected)
+                for (int k = 0; k < n; k++) {
+                    expected += (float)h_hA[k*n + j] * (float)h_hB[i*n + k];
+                }
+                //printf("\n%f\t%f", expected, h_C[i*n + j]);
+                // Check if the absolute difference is within a small tolerance
+                if (fabs(h_C[i*n + j] - expected) > 1e-1) {
+                printf("Verification failed at index %d,%d! h_C[%d,%d] = %f, expected = %f\n", i, j, i, j, h_C[i*n + j], expected);
+                exit(-1);
+                }
             }
         }
+        printf("Verification passed!\n\n");
     }
-    printf("Verification passed!\n\n");
-
 
     // Clean up
     cublasDestroy(handle);

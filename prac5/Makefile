@@ -6,6 +6,12 @@ NVCCFLAGS	:= -lineinfo -arch=sm_70 --ptxas-options=-v --use_fast_math
 
 both:		simpleCUFFT tensorCUBLAS
 
+run1:
+	sbatch prac5.sh
+
+run2:
+	sbatch tensor.sh
+
 tensorCUBLAS:	cuBLAS_Tensors.cu Makefile
 		nvcc cuBLAS_Tensors.cu -o tensorCUBLAS $(INC) $(LIB)
 

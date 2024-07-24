@@ -29,6 +29,20 @@ float reduction_gold(float* idata, int len)
 // GPU routine
 ////////////////////////////////////////////////////////////////////////
 
+/*
+
+To perform multi-block reduction:
+- Step 1:
+  - use temp memory / number of blocks (32 can be optimal) 
+  - Add using per warp shuffle 
+  - Write result -> first thread of each warp adds sum to its block's position in (per block) shared memory (of size e.g. 32 floats)
+
+- Step 2:
+  - first warp add shared memory (of max size 32) using shuffle
+  - Write result -> Use atomicAdd to add to globalAccumulator
+
+*/
+
 __global__ void reduction(float *g_odata, float *g_idata)
 {
     // dynamically allocated shared memory

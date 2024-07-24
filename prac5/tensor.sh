@@ -18,5 +18,5 @@
 module purge
 module load CUDA
 
-./simpleCUFFT
-# ./tensorCUBLAS
+# ./simpleCUFFT
+./tensorCUBLAS
