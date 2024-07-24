@@ -18,5 +18,6 @@
 module purge
 module load CUDA
 
+echo $1
 # ./simpleCUFFT
-./tensorCUBLAS
+./tensorCUBLAS $1

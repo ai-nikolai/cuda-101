@@ -9,8 +9,9 @@ both:		simpleCUFFT tensorCUBLAS
 run1:
 	sbatch prac5.sh
 
+# Running using make run2 n=1024
 run2:
-	sbatch tensor.sh
+	sbatch tensor.sh $(n)
 
 tensorCUBLAS:	cuBLAS_Tensors.cu Makefile
 		nvcc cuBLAS_Tensors.cu -o tensorCUBLAS $(INC) $(LIB)

@@ -16,7 +16,13 @@ void checkError(cublasStatus_t status){
     }
 }
 
-int main(void){
+int main(int argc, char ** argv){
+
+
+    // Size of row or col in matrix (we will work with a square matrix).
+    // int n = 1024;
+    int n = atoi(argv[1]);
+    printf("using n=%d\n",n);
 
     //run_init_on_gpu -> look at this and prac2_device: 
     // https://stackoverflow.com/questions/57902066/how-to-generate-unique-random-integers-with-curand
@@ -33,13 +39,6 @@ int main(void){
 
     // Pointers to type float for input and output matrices.
     float *d_A, *d_B, *d_C;
-
-    // Size of row or col in matrix (we will work with a square matrix).
-    int n = 1024;
-    // int n = 1024;
-    // int n = 1024;
-    // int n = 1024;
-
 
     // To get an accurate timing measurement we will run the same code
     // multiple times. Five times should be more than enough.
