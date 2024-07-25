@@ -7,6 +7,12 @@ NVCCFLAGS	:= -lineinfo -arch=sm_70 --ptxas-options=-v --use_fast_math
 
 all:	prac6 prac6a prac6b prac6c
 
+# run_prac6:
+# 	sbatch run.sh ./prac6
+
+# make run name=prac6
+run:
+	sbatch run.sh $(name)
 
 main.o:	main.cpp Makefile
 	g++ -c -fPIC -o main.o main.cpp
