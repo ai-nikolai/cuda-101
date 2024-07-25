@@ -4,6 +4,10 @@ LIB	:= -L$(CUDA_HOME)/lib64 -lcudart
 
 NVCCFLAGS	:= -lineinfo -arch=sm_70 --ptxas-options=-v --use_fast_math
 
+# usage: make run command=./trid
+run:
+	sbatch run.sh $(command)
+
 trid:	trid.cu trid_gold.cpp Makefile
 	nvcc trid.cu trid_gold.cpp -o trid \
 	$(INC) $(NVCCFLAGS) $(LIB)

@@ -30,7 +30,7 @@ __global__ void GPU_trid(int NX, int niter, float *u)
     if (tid>0)
       aa = -bbi;
     else
-      aa = 0.0f;
+      aa = 0.0f; //Does this ever run?
 
     if (tid<blockDim.x-1)
       cc = -bbi;

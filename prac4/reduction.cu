@@ -82,12 +82,85 @@ __global__ void reduction(float *g_odata, float *g_idata)
 }
 
 
+__global__ void reduction_shuffle(float *g_odata, float *g_idata)
+{
+    // dynamically allocated shared memory
+    extern  __shared__  float temp[];
+
+    int tid = threadIdx.x;
+
+    // first, each thread loads data into register
+    float temp_sum;
+    temp_sum = g_idata[tid + blockDim.x * blockIdx.x];
+
+    // next, we perform shuffle reduction per warp (for all warps)
+    for (int i=1; i<32; i=2*i)
+      temp_sum += __shfl_xor_sync((unsigned int)-1, temp_sum, i);
+
+    //next thread 1 of each warp writes to shared memory
+    if (tid%warpSize==0){
+      temp[tid/warpSize]=temp_sum;
+    }
+    __syncthreads();  // wait for shared memory write
+
+    //finally first warp reduces all shared memory
+    if (tid<warpSize){
+      temp_sum = 0.0f;
+      if (tid<blockDim.x/warpSize) temp_sum = temp[tid];
+
+      for (int i=1; i<32; i=2*i)
+        temp_sum += __shfl_xor_sync((unsigned int)-1, temp_sum, i);
+    }
+
+    // finally, add numbers to g_odata
+    if (tid==0) atomicAdd(g_odata,temp_sum);
+}
+
+
+
+__global__ void reduction_suffle_gold(float *g_odata, float *g_idata)
+{
+    // shared memory
+
+    __shared__ float temp[32];
+
+    int   tid = threadIdx.x;
+    float val = g_idata[tid + blockIdx.x*blockDim.x];
+
+    // first, do reduction within each warp
+
+    for (int i=1; i<32; i=2*i)
+      val += __shfl_xor_sync((unsigned int)-1, val, i);
+
+    // put warp sums into shared memory, then read back into first warp
+
+    if (tid%32==0) temp[tid/32] = val;
+
+    __syncthreads();
+
+    if (tid<32) {
+      val = 0.0f;
+      if (tid<blockDim.x/32) val = temp[tid];
+
+    // second, do final reduction within first warp
+
+      for (int i=1; i<32; i=2*i)
+        val += __shfl_xor_sync((unsigned int)-1, val, i);
+
+    // finally, first thread atomically adds result to global sum
+
+      if (tid==0) atomicAdd(g_odata, val);
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////
 // Program main
 ////////////////////////////////////////////////////////////////////////
 
 int main( int argc, const char** argv) 
 {
+
+  bool run_shuffle = true;
   int num_blocks, num_threads, num_elements, mem_size, shared_mem_size;
 
   float *h_data, *d_idata, *d_odata;
@@ -104,12 +177,18 @@ int main( int argc, const char** argv)
 
 
   // General params
-  num_blocks   = 1024;  // start with only 1 thread block
-  num_threads  = 1024;
+  num_blocks   = 1;  // start with only 1 thread block
+  num_threads  = 512;
   num_elements = num_blocks*num_threads;
   mem_size     = sizeof(float) * num_elements;
 
-
+  if (run_shuffle){
+    printf("Running Shuffle");
+  }
+  else{
+    printf("Running Binary Tree Reduction");
+  }
+  printf("Blocks: %d, Threads: %d\n",num_blocks,num_threads);
 
   // allocate host memory to store the input data
   // and initialize to integer values between 0 and 10
@@ -133,8 +212,11 @@ int main( int argc, const char** argv)
   checkCudaErrors( cudaMalloc((void**)&d_odata, sizeof(float)) );
 
   // copy host memory to device input array
+  float sum2 = 0.0f;
   cudaEventRecord(start);
   checkCudaErrors( cudaMemcpy(d_idata, h_data, mem_size,
+                              cudaMemcpyHostToDevice) );
+  checkCudaErrors( cudaMemcpy(d_odata, &sum2, sizeof(float),
                               cudaMemcpyHostToDevice) );
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -146,7 +228,9 @@ int main( int argc, const char** argv)
   shared_mem_size = sizeof(float) * num_threads;
 
   cudaEventRecord(start);
-  reduction<<<num_blocks,num_threads,shared_mem_size>>>(d_odata,d_idata);
+  // reduction<<<num_blocks,num_threads,shared_mem_size>>>(d_odata,d_idata);
+  // reduction_shuffle<<<num_blocks,num_threads,32>>>(d_odata,d_idata);
+  reduction_suffle_gold<<<num_blocks,num_threads>>>(d_odata,d_idata);
   getLastCudaError("reduction kernel execution failed");
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
