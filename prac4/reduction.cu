@@ -53,17 +53,18 @@ __global__ void reduction(float *g_odata, float *g_idata)
 
     // first, each thread loads data into shared memory
 
-    temp[tid] = g_idata[tid];
+    temp[tid] = g_idata[tid + blockDim.x * blockIdx.x];
 
     // extension for non pow2 threads
     unsigned int round_down_2 =  (1 << (32 - __clz(blockDim.x-1)))>>1;  
     unsigned int remaining_elements = blockDim.x-round_down_2;
-    __syncthreads();  // ensure previous step completed 
+    
+    __syncthreads();  // ensure data loaded
     if (tid<remaining_elements) temp[tid] += temp[tid+round_down_2];
-    if(tid==0){
-      printf("GPU:: Remaining elements: %u\n",remaining_elements);
-      printf("GPU:: round_down_2: %u\n",round_down_2);
-    }
+    // if(tid==0){
+    //   printf("GPU:: Remaining elements: %u\n",remaining_elements);
+    //   printf("GPU:: round_down_2: %u\n",round_down_2);
+    // }
 
     // next, we perform binary tree reduction
 
@@ -74,7 +75,10 @@ __global__ void reduction(float *g_odata, float *g_idata)
     }
 
     // finally, first thread puts result into global memory
-    if (tid==0) g_odata[0] = temp[0];
+    // if (tid==0) g_odata[0] = temp[0];
+
+    // finally, add numbers to g_odata
+    if (tid==0) atomicAdd(g_odata,temp[tid]);
 }
 
 
@@ -100,8 +104,8 @@ int main( int argc, const char** argv)
 
 
   // General params
-  num_blocks   = 1;  // start with only 1 thread block
-  num_threads  = 512+64;
+  num_blocks   = 1024;  // start with only 1 thread block
+  num_threads  = 1024;
   num_elements = num_blocks*num_threads;
   mem_size     = sizeof(float) * num_elements;
 
